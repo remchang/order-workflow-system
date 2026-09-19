@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物资领用工作台 · 实验06</title>
+<link rel="stylesheet" href="/orders.css">
+</head>
+<body>
+
+<header class="dingbu">
+  <div class="biaoti">
+    <span class="yuan"></span>
+    <h1>物资领用工作台</h1>
+    <span class="fu">Node-RED 编排 + 独立库存服务</span>
+  </div>
+  <div class="zhuangtai">
+    <span class="deng" id="deng-flow">流程</span>
+    <span class="deng" id="deng-kucun">库存服务</span>
+  </div>
+</header>
+
+<main>
+  <!-- ① 提交申请 -->
+  <section class="kapian">
+    <h2>提交领用申请</h2>
+    <form id="biaodan">
+      <div class="hang-er">
+        <div class="hang">
+          <label class="kuan" for="request_id">请求编号</label>
+          <input type="text" id="request_id" name="request_id" placeholder="例：SY-1001" autocomplete="off">
+        </div>
+        <div class="hang">
+          <label class="kuan" for="sku">商品</label>
+          <select id="sku" name="sku"></select>
+        </div>
+      </div>
+      <div class="hang-er">
+        <div class="hang">
+          <label class="kuan" for="quantity">数量</label>
+          <input type="number" id="quantity" name="quantity" value="1" min="1" max="20">
+        </div>
+        <div class="hang">
+          <span class="kuan">当前库存</span>
+          <span class="kucun-xianshi" id="kucun-xianshi">—</span>
+        </div>
+      </div>
+      <p class="tishi" id="tishi-chang">
+        编号 4~40 位字母数字或 <code>-</code> <code>_</code>；单次最多 20 件。
+        同一个编号重复提交不会重复扣减。
+      </p>
+      <div class="anniu-hang">
+        <button type="submit" id="anniu-tijiao">提交申请</button>
+        <span class="jindu" id="jindu"></span>
+      </div>
+    </form>
+    <div class="jieguo" id="jieguo" hidden></div>
+    <div class="cuowu" id="cuowu" hidden></div>
+  </section>
+
+  <!-- ② 记录列表 -->
+  <section class="kapian">
+    <div class="liebiao-tou">
+      <h2>领用记录</h2>
+      <div>
+        <select id="shaixuan">
+          <option value="">全部状态</option>
+          <option value="已完成">已完成</option>
+        </select>
+        <button class="xiao" id="anniu-shuaxin" type="button">刷新</button>
+      </div>
+    </div>
+    <table class="liebiao">
+      <thead>
+        <tr>
+          <th>请求编号</th>
+          <th>商品</th>
+          <th>数量</th>
+          <th>剩余库存</th>
+          <th>状态</th>
+          <th>规则版本</th>
+          <th>时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="liebiao-ti">
+        <tr><td colspan="8" class="kong">读取中…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ③ 商品库存总览 -->
+  <section class="kapian">
+    <h2>商品库存总览</h2>
+    <p class="tishi">
+      这里显示的是**服务端**的真实库存。页面上不做任何本地扣减——
+      页面自己算库存，一刷新就露馅，那是假界面。
+    </p>
+    <table class="liebiao">
+      <thead>
+        <tr><th>编码</th><th>名称</th><th>类别</th><th>库存</th><th>单价</th><th>单位</th></tr>
+      </thead>
+      <tbody id="shangpin-ti"></tbody>
+    </table>
+  </section>
+</main>
+
+<!-- 详情抽屉 -->
+<div class="zhezhao" id="zhezhao" hidden>
+  <aside class="chouti">
+    <div class="chouti-tou">
+      <h3 id="chouti-biaoti">记录详情</h3>
+      <button class="xiao" id="guan-chouti" type="button">关闭</button>
+    </div>
+    <dl class="xiangqing" id="chouti-neirong"></dl>
+  </aside>
+</div>
+
+<div class="tishilan" id="tishilan" hidden></div>
+
+<script src="/orders.js"></script>
+</body>
+</html>
