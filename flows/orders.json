@@ -1,0 +1,576 @@
+[
+    {
+        "id": "tab_orders",
+        "type": "tab",
+        "label": "订单编排",
+        "disabled": false,
+        "info": "实验06 主流程：HTTP In -> 校验 -> 分支 -> 调库存服务 -> HTTP Response。\n每个 Function 都只改 msg 的字段，不新建对象，这样 msg.req / msg.res 不会丢。"
+    },
+    {
+        "id": "cmt_head",
+        "type": "comment",
+        "z": "tab_orders",
+        "name": "① 健康检查与商品列表",
+        "info": "",
+        "x": 150,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "in_health",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "GET /health",
+        "url": "/health",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 120,
+        "wires": [
+            [
+                "fn_health"
+            ]
+        ]
+    },
+    {
+        "id": "fn_health",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "返回 ok",
+        "func": "// 最小可用流程：不查任何外部依赖，直接回 ok\nmsg.statusCode = 200;\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = { status: \"ok\", laiyuan: \"node-red\", shijian: new Date().toISOString() };\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 120,
+        "wires": [
+            [
+                "out_health"
+            ]
+        ]
+    },
+    {
+        "id": "out_health",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 620,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "in_prod",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "GET /api/products",
+        "url": "/api/products",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 180,
+        "wires": [
+            [
+                "req_prod"
+            ]
+        ]
+    },
+    {
+        "id": "req_prod",
+        "type": "http request",
+        "z": "tab_orders",
+        "name": "查商品",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://127.0.0.1:8001/products",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "timeout": "8",
+        "x": 400,
+        "y": 180,
+        "wires": [
+            [
+                "fn_wrap_prod"
+            ]
+        ]
+    },
+    {
+        "id": "fn_wrap_prod",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "包装商品结果",
+        "func": "// 商品列表直接透传。注意不能新建 msg，否则 msg.res 会丢，\n// HTTP Response 就不知道该回哪个请求了。\nif (msg.statusCode >= 200 && msg.statusCode < 300) {\n    msg.statusCode = 200;\n    msg.payload = { ok: true, products: (msg.payload && msg.payload.products) || [] };\n} else {\n    msg.statusCode = 502;\n    msg.payload = { ok: false, laiyuan: \"node-red\", xiaoxi: \"库存服务返回 \" + msg.statusCode };\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 630,
+        "y": 180,
+        "wires": [
+            [
+                "out_prod"
+            ]
+        ]
+    },
+    {
+        "id": "out_prod",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 860,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "cmt_post",
+        "type": "comment",
+        "z": "tab_orders",
+        "name": "② 提交订单（正常 / 校验失败 两条路）",
+        "info": "",
+        "x": 180,
+        "y": 250,
+        "wires": []
+    },
+    {
+        "id": "in_post",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "POST /api/orders",
+        "url": "/api/orders",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 310,
+        "wires": [
+            [
+                "fn_yanzheng"
+            ]
+        ]
+    },
+    {
+        "id": "fn_yanzheng",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "校验请求（2 路输出）",
+        "func": "// 输出①：合法 -> 去调库存服务\n// 输出②：非法 -> 直接 400，不打扰库存服务\n//\n// 这一段只做「形状校验」（字段在不在、类型对不对、范围合不合理）。\n// 业务校验（库存够不够、编号冲不冲突）由库存服务负责——\n// 数据归谁所有，规则就归谁管，Node-RED 不越界。\n\nconst p = msg.payload;\nconst hui = [];\n\nif (!p || typeof p !== \"object\" || Array.isArray(p)) {\n    hui.push(\"请求体必须是 JSON 对象\");\n} else {\n    const idGeShi = /^[A-Za-z0-9_-]{4,40}$/;\n    if (!p.request_id || !idGeShi.test(String(p.request_id))) {\n        hui.push(\"request_id 必须是 4~40 位的字母数字或 - _\");\n    }\n    if (!p.sku || !/^[A-Za-z0-9_-]{2,20}$/.test(String(p.sku))) {\n        hui.push(\"sku 必须是 2~20 位字母数字或 - _\");\n    }\n    if (!Number.isInteger(p.quantity) || p.quantity <= 0) {\n        hui.push(\"quantity 必须是正整数\");\n    } else if (p.quantity > 20) {\n        hui.push(\"单次领用最多 20 件\");\n    }\n\n    // 字段白名单：多传的字段直接拒，避免以后悄悄加字段就绕过校验\n    const yunxu = [\"request_id\", \"sku\", \"quantity\"];\n    const duo = Object.keys(p).filter(function (k) { return yunxu.indexOf(k) < 0; });\n    if (duo.length > 0) {\n        hui.push(\"不认识的字段：\" + duo.join(\",\"));\n    }\n}\n\nif (hui.length > 0) {\n    msg.statusCode = 400;\n    msg.headers = { \"content-type\": \"application/json\" };\n    msg.payload = { ok: false, laiyuan: \"node-red\", xiaoxi: hui.join(\"；\") };\n    return [null, msg];\n}\n\n// 合法：只改字段，不动 msg 本身\nmsg.order = {\n    request_id: String(p.request_id).trim(),\n    sku: String(p.sku).trim().toUpperCase(),\n    quantity: p.quantity\n};\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = msg.order;\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 310,
+        "wires": [
+            [
+                "req_reserve"
+            ],
+            [
+                "fn_400"
+            ]
+        ]
+    },
+    {
+        "id": "fn_400",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "回 400",
+        "func": "if (!msg.statusCode || msg.statusCode < 400) { msg.statusCode = 400; }\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 380,
+        "wires": [
+            [
+                "out_post_bad"
+            ]
+        ]
+    },
+    {
+        "id": "out_post_bad",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 880,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "req_reserve",
+        "type": "http request",
+        "z": "tab_orders",
+        "name": "预留库存",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://127.0.0.1:8001/reserve",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "timeout": "8",
+        "x": 640,
+        "y": 300,
+        "wires": [
+            [
+                "fn_fenlei"
+            ]
+        ]
+    },
+    {
+        "id": "fn_fenlei",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "按状态分类返回",
+        "func": "// ★ 本流程最关键的一段：把「业务拒绝」和「依赖故障」分开。\n//\n//   2xx  -> 200 成功\n//   409  -> 409 业务拒绝（库存不足 / 编号内容冲突 / 超过规则上限）\n//   404  -> 404 商品不存在\n//   4xx  -> 400 请求问题\n//   5xx  -> 502 依赖失败（库存服务自己挂了）\n//\n// 为什么不能一律回 200 或者一律回 500：\n//   业务拒绝是「你的问题，改输入再来」；\n//   依赖故障是「我的问题，等等再试」。\n//   前端和重试策略要据此走完全不同的路。\n\nconst ti = msg.payload || {};\nconst ma = msg.statusCode;\n\nmsg.headers = { \"content-type\": \"application/json\" };\n\nif (ma >= 200 && ma < 300) {\n    msg.statusCode = 200;\n    msg.payload = {\n        ok: true,\n        laiyuan: \"node-red\",\n        request_id: ti.request_id,\n        sku: ti.sku,\n        quantity: ti.quantity,\n        shengyu: ti.shengyu,\n        zhuangtai: ti.zhuangtai,\n        guize_banben: ti.guize_banben,\n        chongfu: ti.chongfu === true,\n        xiaoxi: ti.chongfu === true\n            ? \"同一编号的相同请求，已幂等命中，库存未重复扣减\"\n            : \"预留成功\"\n    };\n} else if (ma === 409) {\n    msg.statusCode = 409;\n    msg.payload = {\n        ok: false,\n        laiyuan: \"node-red\",\n        lei_xing: ti.lei_xing || \"yewu_jujue\",\n        xiaoxi: ti.xiaoxi || \"业务拒绝\",\n        request_id: (msg.order && msg.order.request_id) || null,\n        jiaoyi: \"这是业务拒绝，改输入后可以用**同一个编号**重试（编号没被占用）\"\n    };\n} else if (ma === 404) {\n    msg.statusCode = 404;\n    msg.payload = {\n        ok: false, laiyuan: \"node-red\",\n        xiaoxi: ti.xiaoxi || \"商品不存在\",\n        sku: (msg.order && msg.order.sku) || null\n    };\n} else if (ma >= 400 && ma < 500) {\n    msg.statusCode = 400;\n    msg.payload = { ok: false, laiyuan: \"node-red\", xiaoxi: ti.xiaoxi || \"请求有问题\" };\n} else {\n    // 5xx：依赖失败。绝不能返回成功。\n    msg.statusCode = 502;\n    msg.payload = {\n        ok: false,\n        laiyuan: \"node-red\",\n        lei_xing: \"yilai_shibai\",\n        xiaoxi: \"库存服务暂时不可用（原始状态 \" + ma + \"），请稍后重试。\",\n        jiaoyi: \"结果未知：先用同一个编号查一次 /api/orders/{编号}，确认没扣减再重试\"\n    };\n}\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 870,
+        "y": 300,
+        "wires": [
+            [
+                "out_post"
+            ]
+        ]
+    },
+    {
+        "id": "out_post",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1110,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "cmt_query",
+        "type": "comment",
+        "z": "tab_orders",
+        "name": "③ 查询：列表 + 按编号查详情",
+        "info": "",
+        "x": 170,
+        "y": 450,
+        "wires": []
+    },
+    {
+        "id": "in_list",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "GET /api/orders",
+        "url": "/api/orders",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 510,
+        "wires": [
+            [
+                "fn_list_canshu"
+            ]
+        ]
+    },
+    {
+        "id": "fn_list_canshu",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "取筛选参数",
+        "func": "// 支持 ?zhuangtai=已完成 这样的筛选，直接透传给库存服务\nconst zt = (msg.req && msg.req.query && msg.req.query.zhuangtai) || \"\";\nmsg.url = \"http://127.0.0.1:8001/reservations\" + (zt ? (\"?zhuangtai=\" + encodeURIComponent(zt)) : \"\");\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 510,
+        "wires": [
+            [
+                "req_list"
+            ]
+        ]
+    },
+    {
+        "id": "req_list",
+        "type": "http request",
+        "z": "tab_orders",
+        "name": "查记录",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "timeout": "8",
+        "x": 630,
+        "y": 510,
+        "wires": [
+            [
+                "fn_list_baozhuang"
+            ]
+        ]
+    },
+    {
+        "id": "fn_list_baozhuang",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "包装记录",
+        "func": "if (msg.statusCode >= 200 && msg.statusCode < 300) {\n    msg.statusCode = 200;\n    msg.payload = {\n        ok: true,\n        laiyuan: \"node-red\",\n        reservations: (msg.payload && msg.payload.reservations) || [],\n        zong_shu: (msg.payload && msg.payload.zong_shu) || 0\n    };\n} else {\n    msg.statusCode = 502;\n    msg.payload = { ok: false, laiyuan: \"node-red\", lei_xing: \"yilai_shibai\", xiaoxi: \"查询记录失败，库存服务返回 \" + msg.statusCode };\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 870,
+        "y": 510,
+        "wires": [
+            [
+                "out_list"
+            ]
+        ]
+    },
+    {
+        "id": "out_list",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1110,
+        "y": 510,
+        "wires": []
+    },
+    {
+        "id": "in_one",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "GET /api/orders/:request_id",
+        "url": "/api/orders/:request_id",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 220,
+        "y": 580,
+        "wires": [
+            [
+                "fn_one_canshu"
+            ]
+        ]
+    },
+    {
+        "id": "fn_one_canshu",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "取编号",
+        "func": "const id = (msg.req && msg.req.params && msg.req.params.request_id) || \"\";\nif (!id) {\n    msg.statusCode = 400;\n    msg.payload = { ok: false, laiyuan: \"node-red\", xiaoxi: \"路径里没有请求编号\" };\n    return [null, msg];\n}\nmsg.order = { request_id: decodeURIComponent(id) };\nmsg.url = \"http://127.0.0.1:8001/reservations/\" + encodeURIComponent(msg.order.request_id);\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 450,
+        "y": 580,
+        "wires": [
+            [
+                "req_one"
+            ],
+            [
+                "fn_400"
+            ]
+        ]
+    },
+    {
+        "id": "req_one",
+        "type": "http request",
+        "z": "tab_orders",
+        "name": "查详情",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "timeout": "8",
+        "x": 680,
+        "y": 570,
+        "wires": [
+            [
+                "fn_one_baozhuang"
+            ]
+        ]
+    },
+    {
+        "id": "fn_one_baozhuang",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "包装详情",
+        "func": "if (msg.statusCode >= 200 && msg.statusCode < 300) {\n    msg.statusCode = 200;\n    msg.payload = { ok: true, laiyuan: \"node-red\", reservation: msg.payload && msg.payload.reservation };\n} else if (msg.statusCode === 404) {\n    msg.statusCode = 404;\n    msg.payload = { ok: false, laiyuan: \"node-red\", xiaoxi: \"没有这个编号的记录\" };\n} else {\n    msg.statusCode = 502;\n    msg.payload = { ok: false, laiyuan: \"node-red\", lei_xing: \"yilai_shibai\", xiaoxi: \"查询失败，库存服务返回 \" + msg.statusCode };\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 910,
+        "y": 570,
+        "wires": [
+            [
+                "out_one"
+            ]
+        ]
+    },
+    {
+        "id": "out_one",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1150,
+        "y": 570,
+        "wires": []
+    },
+    {
+        "id": "cmt_err",
+        "type": "comment",
+        "z": "tab_orders",
+        "name": "④ 网络异常 / 超时（Catch 兜底）",
+        "info": "",
+        "x": 180,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "catch_all",
+        "type": "catch",
+        "z": "tab_orders",
+        "name": "捕获节点错误",
+        "scope": null,
+        "uncaught": false,
+        "x": 180,
+        "y": 730,
+        "wires": [
+            [
+                "fn_err"
+            ]
+        ]
+    },
+    {
+        "id": "fn_err",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "错误分类",
+        "func": "// 能走到这里的，基本是 HTTP Request 的网络错误/超时。\n// ★ 关键认识：超时 ≠ 对方没执行。\n//   所以这里不返回「失败」，而是返回「结果未知，请按编号查询」。\n//   只有在一开始就明确没发出去的情况下才能断言失败。\n\nconst cuo = (msg.error && (msg.error.message || msg.error.code)) || \"未知错误\";\n\nmsg.statusCode = 502;\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = {\n    ok: false,\n    laiyuan: \"node-red\",\n    lei_xing: \"wangluo_yichang\",\n    xiaoxi: \"调用库存服务失败：\" + cuo,\n    jiaoyi: \"结果未知。请先用同一个编号查 GET /api/orders/{编号} 确认是否已经扣减，再决定要不要重试。不要直接重复提交。\"\n};\n\n// 顺手记一条到 context，方便课后看异常时间线\nconst xian = context.get(\"yichang_jilu\") || [];\nxian.push({ shijian: new Date().toISOString(), cuo: cuo });\nif (xian.length > 50) { xian.shift(); }\ncontext.set(\"yichang_jilu\", xian);\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 730,
+        "wires": [
+            [
+                "out_err"
+            ]
+        ]
+    },
+    {
+        "id": "out_err",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 630,
+        "y": 730,
+        "wires": []
+    },
+    {
+        "id": "in_errlog",
+        "type": "http in",
+        "z": "tab_orders",
+        "name": "GET /api/yichang",
+        "url": "/api/yichang",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 800,
+        "wires": [
+            [
+                "fn_errlog"
+            ]
+        ]
+    },
+    {
+        "id": "fn_errlog",
+        "type": "function",
+        "z": "tab_orders",
+        "name": "读异常记录",
+        "func": "// 给运维看的：最近发生过的调用异常\nmsg.statusCode = 200;\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = {\n    ok: true,\n    laiyuan: \"node-red\",\n    yichang: context.get(\"yichang_jilu\") || [],\n    shuoming: \"来自 Node-RED 文件 Context。它只有缓存和定期刷盘，不是事务，所以仅供参考，不能当业务数据。\"\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 800,
+        "wires": [
+            [
+                "out_errlog"
+            ]
+        ]
+    },
+    {
+        "id": "out_errlog",
+        "type": "http response",
+        "z": "tab_orders",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 650,
+        "y": 800,
+        "wires": []
+    }
+]
