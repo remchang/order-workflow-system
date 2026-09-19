@@ -1,0 +1,18 @@
+{
+    "name": "order-workflow-system",
+    "version": "1.0.0",
+    "private": true,
+    "description": "实验06：开源工作流自动化与服务集成系统（Node-RED 订单编排 + FastAPI 独立库存服务）",
+    "author": "王锐兵 (软件2304, 学号 23110506126)",
+    "license": "MIT",
+    "engines": {
+        "node": ">=22.9"
+    },
+    "scripts": {
+        "start": "node node_modules/node-red/red.js --userDir ./data/node-red --settings ./settings.js ./flows/orders.json",
+        "start:baseline": "node node_modules/node-red/red.js --userDir ./data/node-red --settings ./settings.js ./flows/baseline.json"
+    },
+    "dependencies": {
+        "node-red": "5.0.7"
+    }
+}

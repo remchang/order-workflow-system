@@ -1,0 +1,57 @@
+[
+    {
+        "id": "tab_base",
+        "type": "tab",
+        "label": "基线（最小流程）",
+        "disabled": false,
+        "info": "课前基线：只验证 HTTP In -> Function -> HTTP Response 这条链路能跑通。\n不依赖库存服务，先跑这个确认 Node-RED 本身没问题，再上主流程。"
+    },
+    {
+        "id": "b_in",
+        "type": "http in",
+        "z": "tab_base",
+        "name": "GET /health",
+        "url": "/health",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 120,
+        "wires": [
+            [
+                "b_fn"
+            ]
+        ]
+    },
+    {
+        "id": "b_fn",
+        "type": "function",
+        "z": "tab_base",
+        "name": "设置 JSON",
+        "func": "msg.statusCode = 200;\nmsg.headers = { \"content-type\": \"application/json\" };\nmsg.payload = { status: \"ok\" };\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 390,
+        "y": 120,
+        "wires": [
+            [
+                "b_out"
+            ]
+        ]
+    },
+    {
+        "id": "b_out",
+        "type": "http response",
+        "z": "tab_base",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 630,
+        "y": 120,
+        "wires": []
+    }
+]
